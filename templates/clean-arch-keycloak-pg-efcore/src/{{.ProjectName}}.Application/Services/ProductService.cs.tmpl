@@ -1,0 +1,105 @@
+using __ProjectName__.Domain.Entities;
+using __ProjectName__.Domain.Repositories;
+using __ProjectName__.Application.Contracts.Interfaces;
+using __ProjectName__.Contracts.Response;
+using __ProjectName__.Contracts.Request;
+
+namespace __ProjectName__.Application.Services;
+
+public class ProductService : IProductService
+{
+    private readonly IProductRepository _productRepository;
+
+    public ProductService(IProductRepository productRepository)
+    {
+        _productRepository = productRepository;
+    }
+
+    public async Task<ProductResponse?> GetByIdAsync(Guid id)
+    {
+        var product = await _productRepository.GetByIdAsync(id);
+        return product == null ? null : MapToResponse(product);
+    }
+
+    public async Task<IEnumerable<ProductResponse>> GetAllAsync()
+    {
+        var products = await _productRepository.GetAllAsync();
+        return products.Select(MapToResponse);
+    }
+
+    public async Task<IEnumerable<ProductResponse>> GetActiveAsync()
+    {
+        var products = await _productRepository.GetActiveAsync();
+        return products.Select(MapToResponse);
+    }
+
+    public async Task<ProductResponse> CreateAsync(CreateProductRequest request)
+    {
+        var product = new Product(
+            request.Name,
+            request.Description,
+            request.Price,
+            request.Stock);
+
+        await _productRepository.CreateAsync(product);
+        return MapToResponse(product);
+    }
+
+    public async Task<ProductResponse?> UpdateAsync(Guid id, UpdateProductRequest request)
+    {
+        var product = await _productRepository.GetByIdAsync(id);
+        if (product == null)
+            return null;
+
+        product.Update(
+            request.Name,
+            request.Description,
+            request.Price,
+            request.Stock);
+
+        await _productRepository.UpdateAsync(product);
+        return MapToResponse(product);
+    }
+
+    public async Task<bool> DeleteAsync(Guid id)
+    {
+        return await _productRepository.DeleteAsync(id);
+    }
+
+    public async Task<ProductResponse?> ActivateAsync(Guid id)
+    {
+        var product = await _productRepository.GetByIdAsync(id);
+        if (product == null)
+            return null;
+
+        product.Activate();
+        await _productRepository.UpdateAsync(product);
+        return MapToResponse(product);
+    }
+
+    public async Task<ProductResponse?> DeactivateAsync(Guid id)
+    {
+        var product = await _productRepository.GetByIdAsync(id);
+        if (product == null)
+            return null;
+
+        product.Deactivate();
+        await _productRepository.UpdateAsync(product);
+        return MapToResponse(product);
+    }
+
+    private static ProductResponse MapToResponse(Product product)
+    {
+        return new ProductResponse
+        (
+            product.Id,
+            product.Name,
+            product.Description,
+            product.Price,
+            product.Stock,
+            product.IsActive,
+            product.CreatedAt,
+            product.UpdatedAt
+        );
+    }
+}

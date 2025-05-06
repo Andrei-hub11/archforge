@@ -1,0 +1,51 @@
+# Clean Architecture Template
+
+This is a Clean Architecture template with a simple CRUD implementation using Dapper ORM.
+
+## Project Structure
+
+- **{{.ProjectName}}.Domain**: Contains the core business entities and repository interfaces
+- **{{.ProjectName}}.Application**: Contains business logic and services
+- **{{.ProjectName}}.Infrastructure**: Contains implementations of repositories and external services
+- **{{.ProjectName}}.Contracts**: Contains DTOs (Data Transfer Objects) for requests and responses
+- **{{.ProjectName}}.Presentation**: Contains API controllers and startup configuration
+- **{{.ProjectName}}.Common**: Contains common utilities and extensions
+- **{{.ProjectName}}.Tests**: Contains unit tests for the application
+
+## Setup
+
+1. Update the connection string in `src/{{.ProjectName}}.Presentation/appsettings.json` to point to your SQL Server instance
+2. Run the SQL script at `src/{{.ProjectName}}.Infrastructure/Scripts/InitializeDatabase.sql` to create the database schema
+3. Navigate to `src/{{.ProjectName}}.Presentation` and run:
+
+```
+dotnet run
+```
+
+4. Access the Swagger UI at `https://localhost:5001/swagger`
+
+## API Endpoints
+
+The API provides the following endpoints for Product management:
+
+- `GET /api/products` - Get all products
+- `GET /api/products/active` - Get all active products
+- `GET /api/products/{id}` - Get a product by ID
+- `POST /api/products` - Create a new product
+- `PUT /api/products/{id}` - Update an existing product
+- `DELETE /api/products/{id}` - Delete a product
+- `PATCH /api/products/{id}/activate` - Activate a product
+- `PATCH /api/products/{id}/deactivate` - Deactivate a product
+
+## Dependencies
+
+- .NET 8.0+
+- Dapper
+- Postgres
+- xUnit for testing
+
+## Notes
+
+- The project uses a rich domain model with encapsulated behavior
+- Dapper is used for data access with SQL Server
+- The application follows Clean Architecture principles with separation of concerns

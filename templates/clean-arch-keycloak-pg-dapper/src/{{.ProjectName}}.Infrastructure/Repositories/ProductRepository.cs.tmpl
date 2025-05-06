@@ -1,0 +1,111 @@
+using System.Data;
+using Dapper;
+using __ProjectName__.Domain.Entities;
+using __ProjectName__.Domain.Repositories;
+using __ProjectName__.Infrastructure.Data.Models;
+
+namespace __ProjectName__.Infrastructure.Repositories;
+
+public class ProductRepository : IProductRepository
+{
+    private readonly IDbConnection _dbConnection;
+
+    public ProductRepository(IDbConnection dbConnection)
+    {
+        _dbConnection = dbConnection;
+    }
+
+    public async Task<Product?> GetByIdAsync(Guid id)
+    {
+        const string sql = @"
+                SELECT Id, Name, Description, Price, Stock, IsActive, CreatedAt, UpdatedAt
+                FROM Products
+                WHERE Id = @Id";
+
+        var result = await _dbConnection.QuerySingleOrDefaultAsync<ProductReadModelDTO>(sql, new { Id = id });
+
+        return result?.ToEntity();
+    }
+
+    public async Task<IEnumerable<Product>> GetAllAsync()
+    {
+        const string sql = @"
+                SELECT Id, Name, Description, Price, Stock, IsActive, CreatedAt, UpdatedAt
+                FROM Products";
+
+        var results = await _dbConnection.QueryAsync<ProductReadModelDTO>(sql);
+
+        return results.Select(dto => dto.ToEntity());
+    }
+
+    public async Task<IEnumerable<Product>> GetActiveAsync()
+    {
+        const string sql = @"
+                SELECT Id, Name, Description, Price, Stock, IsActive, CreatedAt, UpdatedAt
+                FROM Products
+                WHERE IsActive = 1";
+
+        var results = await _dbConnection.QueryAsync<ProductReadModelDTO>(sql);
+
+        return results.Select(dto => dto.ToEntity());
+    }
+
+    public async Task<bool> CreateAsync(Product product)
+    {
+        const string sql = @"
+                INSERT INTO Products (Id, Name, Description, Price, Stock, IsActive, CreatedAt, UpdatedAt)
+                VALUES (@Id, @Name, @Description, @Price, @Stock, @IsActive, @CreatedAt, @UpdatedAt)";
+
+        var parameters = new
+        {
+            product.Id,
+            product.Name,
+            product.Description,
+            product.Price,
+            product.Stock,
+            product.IsActive,
+            product.CreatedAt,
+            product.UpdatedAt
+        };
+
+        var rowsAffected = await _dbConnection.ExecuteAsync(sql, parameters);
+        return rowsAffected > 0;
+    }
+
+    public async Task<bool> UpdateAsync(Product product)
+    {
+        const string sql = @"
+                UPDATE Products
+                SET Name = @Name,
+                    Description = @Description,
+                    Price = @Price,
+                    Stock = @Stock,
+                    IsActive = @IsActive,
+                    UpdatedAt = @UpdatedAt
+                WHERE Id = @Id";
+
+        var parameters = new
+        {
+            product.Id,
+            product.Name,
+            product.Description,
+            product.Price,
+            product.Stock,
+            product.IsActive,
+            product.UpdatedAt
+        };
+
+        var rowsAffected = await _dbConnection.ExecuteAsync(sql, parameters);
+        return rowsAffected > 0;
+    }
+
+    public async Task<bool> DeleteAsync(Guid id)
+    {
+        const string sql = @"
+                DELETE FROM Products
+                WHERE Id = @Id";
+
+        var rowsAffected = await _dbConnection.ExecuteAsync(sql, new { Id = id });
+        return rowsAffected > 0;
+    }
+}

@@ -1,0 +1,48 @@
+@__.ProjectName__.Api_HostAddress = http://localhost:5254
+
+GET {{__.ProjectName__.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
+
+@baseUrl = https://localhost:7001
+
+### Get all products
+GET {{baseUrl}}/api/products
+
+### Get active products
+GET {{baseUrl}}/api/products/active
+
+### Get product by ID (replace with actual ID)
+GET {{baseUrl}}/api/products/00000000-0000-0000-0000-000000000000
+
+### Create a new product
+POST {{baseUrl}}/api/products
+Content-Type: application/json
+
+{
+  "name": "Test Product",
+  "description": "This is a test product",
+  "price": 19.99,
+  "stock": 10
+}
+
+### Update a product (replace with actual ID)
+PUT {{baseUrl}}/api/products/00000000-0000-0000-0000-000000000000
+Content-Type: application/json
+
+{
+  "name": "Updated Product",
+  "description": "This is an updated product",
+  "price": 29.99,
+  "stock": 5
+}
+
+### Delete a product (replace with actual ID)
+DELETE {{baseUrl}}/api/products/00000000-0000-0000-0000-000000000000
+
+### Activate a product (replace with actual ID)
+PATCH {{baseUrl}}/api/products/00000000-0000-0000-0000-000000000000/activate
+
+### Deactivate a product (replace with actual ID)
+PATCH {{baseUrl}}/api/products/00000000-0000-0000-0000-000000000000/deactivate

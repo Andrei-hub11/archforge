@@ -1,0 +1,476 @@
+﻿using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Headers;
+using System.Text;
+
+using __ProjectName__.Application.Contracts.Interfaces;
+using __ProjectName__.Application.DTOMappers;
+using __ProjectName__.Application.Extensions;
+using __ProjectName__.Contracts.Models;
+using __ProjectName__.Contracts.Request;
+using __ProjectName__.Contracts.Response;
+using __ProjectName__.Domain.Exceptions;
+
+using Microsoft.Extensions.Configuration;
+
+using Newtonsoft.Json;
+
+namespace __ProjectName__.Application.Services.Keycloak;
+
+public class KeycloakService : IKeycloakService
+{
+    private readonly string _endpointAdminBase;
+    private readonly string _endpointClientBase;
+    private readonly HttpClient _httpClient;
+    private readonly IConfiguration _configuration;
+    private readonly TimeSpan _tokenExpiryBuffer = TimeSpan.FromMinutes(1);
+    private KeycloakToken _cachedToken = default!;
+    private DateTimeOffset _tokenExpiration = DateTimeOffset.MinValue;
+
+    public KeycloakService(
+        HttpClient httpClient,
+        IConfiguration configuration
+    )
+    {
+        _httpClient = httpClient;
+        _configuration = configuration;
+        _endpointAdminBase = _configuration.GetRequiredValue("UserKeycloakAdmin:EndpointBase");
+        _endpointClientBase = _configuration.GetRequiredValue("UserKeycloakClient:EndpointBase");
+    }
+
+    public async Task<IReadOnlyList<UserResponseDTO>> GetAllUsersAsync()
+    {
+        var users = await GetUsersAsync();
+
+        return users.ToResponseDTO();
+    }
+
+    public async Task<UserResponseDTO> RegisterUserAsync(
+        UserRegisterRequestDTO request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        UserMapping newUser = null!;
+        bool isRollback = true;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var tokenResponse = await GetAdminTokenAsync();
+
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                "Bearer",
+                tokenResponse.AccessToken
+            );
+
+            var user = new
+            {
+                username = request.UserName,
+                email = request.Email,
+                enabled = true,
+                groups = new[] { "/Users" },
+                credentials = new[]
+                {
+                    new
+                    {
+                        type = "password",
+                        value = request.Password,
+                        temporary = false,
+                    },
+                },
+                attributes = new Dictionary<string, string>
+                {
+                    ["normalizedUserName"] = request.UserName,
+                },
+            };
+
+            var json = JsonConvert.SerializeObject(user);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync($"{_endpointAdminBase}/users", content, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new BadRequestException($"Failed to register user: {response.StatusCode}, {error}");
+            }
+
+            newUser = await GetUserByNameAsync(request.UserName);
+            isRollback = false;
+
+            return newUser.ToResponseDTO();
+        }
+        catch (Exception)
+        {
+            throw;
+        }
+        finally
+        {
+            // If the user was successfully created in Keycloak, try to delete it in case of failure
+            if (
+                isRollback
+                && newUser != null
+                && !string.IsNullOrEmpty(newUser.Id)
+            )
+            {
+                try
+                {
+                    await DeleteUserByIdAsync(newUser.Id);
+                }
+                catch (Exception deleteEx)
+                {
+                    // Log exception but continue
+                    Console.WriteLine($"Failed to delete user with ID: {newUser.Id} after a registration failure: {deleteEx.Message}");
+                }
+            }
+        }
+    }
+
+    public async Task<AuthResponseDTO> LoginUserAsync(
+        UserLoginRequestDTO request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var userToken = await GetUserTokenAsync(request.Email, request.Password);
+        var user = await GetUserByEmailAsync(request.Email);
+
+        var handler = new JwtSecurityTokenHandler();
+        var token = handler.ReadJwtToken(userToken.AccessToken);
+        var rolesClaim = token.Claims.FirstOrDefault(c => c.Type == "resource_access")?.Value;
+
+        if (rolesClaim == null)
+        {
+            throw new BadRequestException("Invalid token format: missing resource_access claim");
+        }
+
+        var resourceAccess = JsonConvert.DeserializeObject<Dictionary<string, ResourceAccess>>(rolesClaim);
+
+        if (resourceAccess == null || !resourceAccess.ContainsKey("base-realm"))
+        {
+            throw new BadRequestException("Invalid token format: missing base-realm access");
+        }
+
+        var baseRealmRoles = resourceAccess["base-realm"].Roles;
+
+        if (baseRealmRoles == null)
+        {
+            throw new BadRequestException("Invalid token format: missing roles");
+        }
+
+        var userRoles = new HashSet<string>(baseRealmRoles);
+
+        return new AuthResponseDTO(
+            User: user.ToResponseDTO(),
+            AccessToken: userToken.AccessToken,
+            RefreshToken: userToken.RefreshToken,
+            Roles: userRoles
+        );
+    }
+
+    public async Task<KeycloakToken> RefreshAccessTokenAsync(
+        string refreshToken,
+        CancellationToken cancellationToken = default
+    )
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var formData = new Dictionary<string, string>
+        {
+            { "client_id", _configuration.GetRequiredValue("UserKeycloakClient:client_id") },
+            { "client_secret", _configuration.GetRequiredValue("UserKeycloakClient:client_secret") },
+            { "grant_type", "refresh_token" },
+            { "refresh_token", refreshToken },
+        };
+
+        var tokenEndpoint = _configuration.GetRequiredValue("UserKeycloakClient:TokenEndpoint");
+
+        var content = new FormUrlEncodedContent(formData);
+        var response = await _httpClient.PostAsync(tokenEndpoint, content, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new BadRequestException($"Request failed: {response.StatusCode}, {error}");
+        }
+
+        var jsonResponse = await response.Content.ReadAsStringAsync(cancellationToken);
+        var tokenResponse = JsonConvert.DeserializeObject<KeycloakToken>(jsonResponse);
+
+        if (tokenResponse == null)
+        {
+            throw new BadRequestException("Failed to deserialize token response");
+        }
+
+        return tokenResponse;
+    }
+
+    private async Task<IEnumerable<UserMapping>> GetUsersAsync()
+    {
+        var apiUrl = $"{_endpointAdminBase}/users";
+
+        var tokenResponse = await GetAdminTokenAsync();
+
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            tokenResponse.AccessToken
+        );
+
+        var response = await _httpClient.GetAsync(apiUrl);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            throw new BadRequestException(
+                $"Failed to retrieve user details: {response.StatusCode}, {error}"
+            );
+        }
+
+        var jsonResponse = await response.Content.ReadAsStringAsync();
+
+        var users = JsonConvert.DeserializeObject<List<UserMapping>>(jsonResponse);
+
+        if (users == null)
+        {
+            throw new NotFoundException("Users not found");
+        }
+
+        return users;
+    }
+
+    private async Task<UserMapping> GetUserByNameAsync(string userName)
+    {
+        var apiUrl = $"{_endpointAdminBase}/users/?username={userName}";
+
+        var tokenResponse = await GetAdminTokenAsync();
+
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            tokenResponse.AccessToken
+        );
+
+        var response = await _httpClient.GetAsync(apiUrl);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            throw new BadRequestException(
+                $"Failed to retrieve user details: {response.StatusCode}, {error}"
+            );
+        }
+
+        var jsonResponse = await response.Content.ReadAsStringAsync();
+        var users = JsonConvert.DeserializeObject<List<UserMapping>>(jsonResponse);
+
+        if (users == null || users.Count == 0)
+        {
+            throw new NotFoundException($"User with username '{userName}' not found");
+        }
+
+        return users.First();
+    }
+
+    public async Task<UserMapping> GetUserByEmailAsync(string email, CancellationToken cancellationToken = default)
+    {
+        var apiUrl = $"{_endpointAdminBase}/users/?email={email}";
+
+        var tokenResponse = await GetAdminTokenAsync();
+
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            tokenResponse.AccessToken
+        );
+
+        var response = await _httpClient.GetAsync(apiUrl, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new BadRequestException(
+                $"Failed to retrieve user details: {response.StatusCode}, {error}"
+            );
+        }
+
+        var jsonResponse = await response.Content.ReadAsStringAsync(cancellationToken);
+        var users = JsonConvert.DeserializeObject<List<UserMapping>>(jsonResponse);
+
+        if (users == null || users.Count == 0)
+        {
+            throw new NotFoundException($"User with email '{email}' not found");
+        }
+
+        return users.First();
+    }
+
+    private async Task<KeycloakToken> GetAdminTokenAsync()
+    {
+        if (_cachedToken != null && DateTimeOffset.UtcNow < _tokenExpiration - _tokenExpiryBuffer)
+        {
+            return _cachedToken;
+        }
+
+        var formData = new Dictionary<string, string>
+        {
+            { "client_id", _configuration.GetRequiredValue("UserKeycloakAdmin:client_id") },
+            { "client_secret", _configuration.GetRequiredValue("UserKeycloakAdmin:client_secret") },
+            { "grant_type", "password" },
+            { "username", _configuration.GetRequiredValue("UserKeycloakAdmin:username") },
+            { "password", _configuration.GetRequiredValue("UserKeycloakAdmin:password") },
+        };
+
+        var tokenEndpoint = _configuration.GetRequiredValue("UserKeycloakAdmin:TokenEndpoint");
+
+        var content = new FormUrlEncodedContent(formData);
+        var response = await _httpClient.PostAsync(tokenEndpoint, content);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            throw new BadRequestException($"Request failed: {response.StatusCode}, {error}");
+        }
+
+        var jsonResponse = await response.Content.ReadAsStringAsync();
+        var tokenResponse = JsonConvert.DeserializeObject<KeycloakToken>(jsonResponse);
+
+        if (tokenResponse == null)
+        {
+            throw new BadRequestException("Failed to deserialize token response");
+        }
+
+        _cachedToken = tokenResponse;
+        _tokenExpiration = DateTimeOffset.UtcNow.AddSeconds(tokenResponse.ExpiresIn);
+
+        return tokenResponse;
+    }
+
+    private async Task<KeycloakToken> GetUserTokenAsync(string username, string password)
+    {
+        var formData = new Dictionary<string, string>
+        {
+            { "client_id", _configuration.GetRequiredValue("UserKeycloakClient:client_id") },
+            { "client_secret", _configuration.GetRequiredValue("UserKeycloakClient:client_secret") },
+            { "grant_type", "password" },
+            { "username", username },
+            { "password", password },
+            { "scope", "offline_access" },
+        };
+
+        var tokenEndpoint = _configuration.GetRequiredValue("UserKeycloakClient:TokenEndpoint");
+
+        var content = new FormUrlEncodedContent(formData);
+        var response = await _httpClient.PostAsync(tokenEndpoint, content);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            throw new BadRequestException($"Authentication failed: {response.StatusCode}, {error}");
+        }
+
+        var jsonResponse = await response.Content.ReadAsStringAsync();
+        var tokenResponse = JsonConvert.DeserializeObject<KeycloakToken>(jsonResponse);
+
+        if (tokenResponse == null)
+        {
+            throw new BadRequestException("Failed to deserialize token response");
+        }
+
+        return tokenResponse;
+    }
+
+    /*     public async Task UpdateUserAsync(User user, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var tokenResponse = await GetAdminTokenAsync();
+
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                "Bearer",
+                tokenResponse.AccessToken
+            );
+
+            var updateUserUrl = $"{_endpointAdminBase}/users/{user.KeycloakId}";
+
+            // warning: sending email, even if it is not actually being updated, to avoid deleting this field in keycloak
+            var updatedUser = new
+            {
+                username = user.UserName,
+                email = user.Email.Value,
+                attributes = new Dictionary<string, string>
+                {
+                    ["profileImagePath"] = user.ProfileImagePath.Value,
+                    ["normalizedUserName"] = user.UserName,
+                },
+            };
+
+            var json = JsonConvert.SerializeObject(updatedUser);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PutAsync(updateUserUrl, content, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new BadRequestException(
+                    $"Failed to update user {user.KeycloakId}: {response.StatusCode}, {errorContent}"
+                );
+            }
+        } */
+
+    public async Task UpdateUserPasswordAsync(
+        string userId,
+        string newPassword,
+        CancellationToken cancellationToken = default
+    )
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var tokenResponse = await GetAdminTokenAsync();
+
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            tokenResponse.AccessToken
+        );
+
+        var resetPasswordUrl = $"{_endpointAdminBase}/users/{userId}/reset-password";
+
+        var resetPasswordPayload = new
+        {
+            type = "password",
+            value = newPassword,
+            temporary = false,
+        };
+
+        var json = JsonConvert.SerializeObject(resetPasswordPayload);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        var response = await _httpClient.PutAsync(resetPasswordUrl, content, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new BadRequestException(
+                $"Failed to reset password for user {userId}: {response.StatusCode}, {errorContent}"
+            );
+        }
+    }
+
+    public async Task<bool> DeleteUserByIdAsync(string userId)
+    {
+        var tokenResponse = await GetAdminTokenAsync();
+
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            tokenResponse.AccessToken
+        );
+
+        var deleteUserUrl = $"{_endpointAdminBase}/users/{userId}";
+        var response = await _httpClient.DeleteAsync(deleteUserUrl);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            throw new BadRequestException(
+                $"Failed to delete user: {response.StatusCode}, {error}"
+            );
+        }
+
+        return true;
+    }
+}
