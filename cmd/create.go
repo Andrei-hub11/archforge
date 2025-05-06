@@ -31,7 +31,9 @@ func CreateCmd() *cobra.Command {
 
 			if len(missing) > 0 {
 				fmt.Printf("Erro: faltando flag(s) obrigatória(s): %s\n\n", strings.Join(missing, ", "))
-				cmd.Usage()
+				if err := cmd.Usage(); err != nil {
+					fmt.Println(err)
+				}
 				os.Exit(1)
 			}
 
@@ -72,8 +74,13 @@ func CreateCmd() *cobra.Command {
 	createCmd.Flags().StringVarP(&cfg.Template, "template", "t", "", "The template to use")
 	createCmd.Flags().BoolVarP(&cfg.Preview, "preview", "p", false, "Preview the project without generating it")
 
-	createCmd.MarkFlagRequired("name")
-	createCmd.MarkFlagRequired("template")
+	if err := createCmd.MarkFlagRequired("name"); err != nil {
+		fmt.Println(err)
+	}
+
+	if err := createCmd.MarkFlagRequired("template"); err != nil {
+		fmt.Println(err)
+	}
 
 	return createCmd
 }
