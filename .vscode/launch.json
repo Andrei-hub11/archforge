@@ -2,12 +2,45 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug Go Program",
+      "name": "Debug Interactive Mode",
       "type": "go",
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}",
-      "args": ["create", "--name", "TestProject", "--template", "webapi"]
+      "args": ["interactive"],
+      "showLog": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug Create Command",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}",
+      "args": ["create", "--name", "TestProject", "--template", "webapi"],
+      "showLog": true
+    },
+    {
+      "name": "Debug Current Test File",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}",
+      "showLog": true
+    },
+    {
+      "name": "Debug All Tests",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}/cmd",
+      "showLog": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug All",
+      "configurations": ["Debug Interactive Mode", "Debug Create Command"]
     }
   ]
 }

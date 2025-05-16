@@ -53,7 +53,7 @@ func (g *DefaultGenerator) Generate(cfg config.ProjectConfig) error {
 
 func GenerateBuildTree(cfg config.ProjectConfig) error {
 	templateDir := filepath.Join(templates.GetTemplatesRootDir(), cfg.Template)
-	templates.PrintBuildTree(templateDir, "")
+	templates.PrintBuildTree(templateDir, "", cfg.Name)
 	return nil
 }
 

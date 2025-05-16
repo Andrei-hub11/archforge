@@ -70,9 +70,10 @@ var defaultSelectFunc = func(message string, options []string, defaultValue stri
 	// Validate if the result is one of the options
 	valid := false
 	for _, opt := range options {
-		if strings.EqualFold(result, opt) {
+		// Compara apenas o ID no início da string
+		if strings.HasPrefix(opt, result) || strings.HasPrefix(result, strings.Split(opt, " - ")[0]) {
 			valid = true
-			result = opt // Use exact case from options
+			result = strings.Split(opt, " - ")[0] // Retorna apenas o ID
 			break
 		}
 	}
@@ -168,10 +169,14 @@ func getInteractiveConfig() config.ProjectConfig {
 		cfg.OutputDir = output
 	}
 
-	// Get template
-	template := currentSelectFunc("Select the template to use ",
-		[]string{"(1) - clean-arch-keycloak-pg-dapper", "(2) - clean-arch-keycloak-pg-ef", "(3) - webapi"}, "1")
-	cfg.Template = datas.TemplatesSelect[template]
+	// Get template usando as opções formatadas
+	templateID := currentSelectFunc(
+		"Select the template to use",
+		datas.GetTemplateOptions(),
+		"1",
+	)
+	// O ID já está correto, não precisa extrair
+	cfg.Template = datas.TemplatesSelect[templateID]
 
 	// Get preview option using the select function
 	preview := currentSelectFunc("Do you want to preview the project? (1/Yes, 2/No)", []string{"1", "2"}, "2")
