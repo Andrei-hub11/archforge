@@ -1,0 +1,18 @@
+
+using __ProjectName__.Contracts.Models;
+using __ProjectName__.Contracts.Request;
+using __ProjectName__.Contracts.Response;
+
+namespace __ProjectName__.Application.Contracts.Interfaces;
+
+public interface IKeycloakService
+{
+    Task<IReadOnlyList<UserResponseDTO>> GetAllUsersAsync();
+    Task<UserResponseDTO> RegisterUserAsync(UserRegisterRequestDTO request, CancellationToken cancellationToken = default);
+    Task<AuthResponseDTO> LoginUserAsync(UserLoginRequestDTO request, CancellationToken cancellationToken = default);
+    Task<KeycloakToken> RefreshAccessTokenAsync(string refreshToken, CancellationToken cancellationToken = default);
+    Task<UserMapping> GetUserByEmailAsync(string email, CancellationToken cancellationToken = default);
+    /*   Task UpdateUserAsync(User user, CancellationToken cancellationToken = default); */
+    Task UpdateUserPasswordAsync(string userId, string newPassword, CancellationToken cancellationToken = default);
+    Task<bool> DeleteUserByIdAsync(string userId);
+}

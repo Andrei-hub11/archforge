@@ -10,7 +10,7 @@ import (
 	"github.com/Andrei-hub11/archforge/internal/config"
 )
 
-// Para permitir configuração durante testes
+// Templates root directory for testing configuration
 var templatesRootDir string
 
 type TemplateData struct {
@@ -21,12 +21,10 @@ type TemplateData struct {
 func ProcessTemplateFile(templatePath, destPath string, cfg config.ProjectConfig) error {
 	content, err := os.ReadFile(templatePath)
 	if err != nil {
-		return fmt.Errorf("erro ao ler arquivo de template: %w", err)
+		return fmt.Errorf("failed to read template file: %w", err)
 	}
 
-	if strings.TrimSuffix(destPath, ".tmpl") != destPath {
-		destPath = strings.TrimSuffix(destPath, ".tmpl")
-	}
+	destPath = ReplaceTemplatePlaceholderFromFileName(destPath, cfg.Name)
 
 	// if the content contains placeholder, replace it with the data
 	if strings.Contains(string(content), "{{.ProjectName}}") {
@@ -39,21 +37,25 @@ func ProcessTemplateFile(templatePath, destPath string, cfg config.ProjectConfig
 
 	tmpl, err := template.New(filepath.Base(templatePath)).Parse(string(content))
 	if err != nil {
-		return fmt.Errorf("erro ao analisar template: %w", err)
+		return fmt.Errorf("failed to parse template: %w", err)
 	}
 
 	// Ensure the destination directory exists
 	destDir := filepath.Dir(destPath)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("erro ao criar diretório de destino: %w", err)
+		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
 	file, err := os.Create(destPath)
 	if err != nil {
-		return fmt.Errorf("erro ao criar arquivo de destino: %w", err)
+		return fmt.Errorf("failed to create destination file: %w", err)
 	}
 
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to close file: %w", closeErr)
+		}
+	}()
 
 	// setting the data for the template
 	data := TemplateData{
@@ -61,10 +63,31 @@ func ProcessTemplateFile(templatePath, destPath string, cfg config.ProjectConfig
 	}
 
 	if err := tmpl.Execute(file, data); err != nil {
-		return fmt.Errorf("erro ao aplicar template: %w", err)
+		return fmt.Errorf("failed to apply template: %w", err)
 	}
 
 	return nil
+}
+
+func ReplaceTemplatePlaceholderFromFolderName(folderName string, projectName string) string {
+	if strings.Contains(folderName, "{{.ProjectName}}") {
+		folderName = strings.ReplaceAll(folderName, "{{.ProjectName}}", projectName)
+	}
+
+	return folderName
+}
+
+// ReplaceTemplatePlaceholderFromFileName replaces the .tmpl or {{.ProjectName}} suffix from the file name
+func ReplaceTemplatePlaceholderFromFileName(fileName string, projectName string) string {
+	if strings.TrimSuffix(fileName, ".tmpl") != fileName {
+		fileName = strings.TrimSuffix(fileName, ".tmpl")
+	}
+
+	if strings.Contains(fileName, "{{.ProjectName}}") {
+		fileName = strings.ReplaceAll(fileName, "{{.ProjectName}}", projectName)
+	}
+
+	return fileName
 }
 
 // CopyTemplateDir recursively copies templates from a source directory to a destination
@@ -73,36 +96,45 @@ func CopyTemplateDir(sourceDir, destDir string, cfg config.ProjectConfig) error 
 	// Get list of template files
 	entries, err := os.ReadDir(sourceDir)
 	if err != nil {
-		return fmt.Errorf("erro ao ler diretório de templates: %w", err)
+		return fmt.Errorf("failed to read templates directory: %w", err)
 	}
 
 	for _, entry := range entries {
-
-		// Ignore obj and bin directories
-		if entry.IsDir() && (entry.Name() == "obj" || entry.Name() == "bin") {
+		// Skip .vs directory and obj/bin directories
+		if entry.IsDir() && (entry.Name() == ".vs" || entry.Name() == "obj" || entry.Name() == "bin") {
 			continue
 		}
 
 		sourcePath := filepath.Join(sourceDir, entry.Name())
 		destPath := filepath.Join(destDir, entry.Name())
 
-		// If the filename contains a template placeholder, replace it
-		if strings.Contains(entry.Name(), "{{.ProjectName}}") {
-			destPath = filepath.Join(destDir,
-				strings.ReplaceAll(entry.Name(), "{{.ProjectName}}", cfg.Name))
-		}
-
 		if entry.IsDir() {
 			// Create destination directory
-			if err := os.MkdirAll(destPath, 0755); err != nil {
-				return fmt.Errorf("erro ao criar diretório: %w", err)
+			destDirName := entry.Name()
+			if strings.Contains(destDirName, "{{.ProjectName}}") {
+				destDirName = strings.ReplaceAll(destDirName, "{{.ProjectName}}", cfg.Name)
 			}
+			destPath = filepath.Join(destDir, destDirName)
+
+			if err := os.MkdirAll(destPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory: %w", err)
+			}
+
 			// Recursive call for subdirectory
 			if err := CopyTemplateDir(sourcePath, destPath, cfg); err != nil {
 				return err
 			}
 		} else {
-			// Process file
+			// Skip binary files and VS-specific files
+			if isBinaryOrVSFile(entry.Name()) {
+				// Just copy the file without processing
+				if err := copyFile(sourcePath, destPath); err != nil {
+					return fmt.Errorf("failed to copy binary file: %w", err)
+				}
+				continue
+			}
+
+			// Process template file
 			if err := ProcessTemplateFile(sourcePath, destPath, cfg); err != nil {
 				return err
 			}
@@ -110,6 +142,38 @@ func CopyTemplateDir(sourceDir, destDir string, cfg config.ProjectConfig) error 
 	}
 
 	return nil
+}
+
+// isBinaryOrVSFile checks if a file is likely to be binary or VS-specific
+func isBinaryOrVSFile(fileName string) bool {
+	// List of extensions and patterns that indicate binary or VS-specific files
+	binaryExtensions := []string{
+		".bin", ".exe", ".dll", ".pdb", ".cache",
+		".suo", ".user", ".vsidx", ".testlog",
+		".v2", ".dtbcache", ".manifest"}
+
+	ext := strings.ToLower(filepath.Ext(fileName))
+	for _, binaryExt := range binaryExtensions {
+		if ext == binaryExt {
+			return true
+		}
+	}
+	return false
+}
+
+// copyFile copies a file from src to dst without processing it as a template
+func copyFile(src, dst string) error {
+	input, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+
+	err = os.MkdirAll(filepath.Dir(dst), 0755)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(dst, input, 0644)
 }
 
 // GetTemplatesRootDir returns the path to the templates directory
@@ -130,13 +194,13 @@ func GetTemplatesRootDir() string {
 	return filepath.Join(filepath.Dir(exePath), "templates")
 }
 
-// SetTemplatesRootDir permite definir o diretório raiz de templates
-// Útil para testes ou personalização
+// SetTemplatesRootDir sets the templates root directory
+// Useful for testing or customization
 func SetTemplatesRootDir(dir string) {
 	templatesRootDir = dir
 }
 
-// ResetTemplatesRootDir restaura o diretório raiz de templates para o padrão
+// ResetTemplatesRootDir resets the templates root directory to the default
 func ResetTemplatesRootDir() {
 	templatesRootDir = ""
 }
@@ -157,16 +221,16 @@ func GenerateCleanArchKeycloakPgEf(projectDir string, cfg config.ProjectConfig) 
 	return CopyTemplateDir(templateDir, projectDir, cfg)
 }
 
-func PrintBuildTree(directoryPath string, prefix string) {
+func PrintBuildTree(directoryPath string, prefix string, params ...string) {
 	entries, err := os.ReadDir(directoryPath)
 	if err != nil {
-		fmt.Println("erro ao ler diretório de templates: %w", err)
+		fmt.Println("failed to read templates directory:", err)
 		return
 	}
 
 	for i, entry := range entries {
 		// Ignore obj and bin directories
-		if entry.IsDir() && (entry.Name() == "obj" || entry.Name() == "bin") {
+		if entry.IsDir() && (entry.Name() == "obj" || entry.Name() == "bin" || entry.Name() == ".vs") {
 			continue
 		}
 
@@ -175,7 +239,15 @@ func PrintBuildTree(directoryPath string, prefix string) {
 			connector = "└──"
 		}
 
-		fmt.Printf("%s%s %s\n", prefix, connector, entry.Name())
+		var entryName string
+
+		if entry.IsDir() {
+			entryName = ReplaceTemplatePlaceholderFromFolderName(entry.Name(), params[0])
+		} else {
+			entryName = ReplaceTemplatePlaceholderFromFileName(entry.Name(), params[0])
+		}
+
+		fmt.Printf("%s%s %s\n", prefix, connector, entryName)
 
 		if entry.IsDir() {
 			newPrefix := prefix
@@ -186,7 +258,7 @@ func PrintBuildTree(directoryPath string, prefix string) {
 				newPrefix += "│   "
 			}
 
-			PrintBuildTree(filepath.Join(directoryPath, entry.Name()), newPrefix)
+			PrintBuildTree(filepath.Join(directoryPath, entry.Name()), newPrefix, params[0])
 		}
 	}
 }

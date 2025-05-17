@@ -20,19 +20,19 @@ type DefaultGenerator struct{}
 
 // Generate creates a new project based on the provided configuration
 func (g *DefaultGenerator) Generate(cfg config.ProjectConfig) error {
-	// Verifica se o diretório de saída existe
+	// Check if the output directory exists
 	projectDir := filepath.Join(cfg.OutputDir, cfg.Name)
 	if _, err := os.Stat(projectDir); !os.IsNotExist(err) {
-		return fmt.Errorf("o diretório '%s' já existe", projectDir)
+		return fmt.Errorf("directory '%s' already exists", projectDir)
 	}
 
-	// Cria o diretório do projeto
+	// Create the project directory
 	err := os.MkdirAll(projectDir, 0755)
 	if err != nil {
-		return fmt.Errorf("erro ao criar diretório do projeto: %w", err)
+		return fmt.Errorf("failed to create project directory: %w", err)
 	}
 
-	// Gera os arquivos apropriados com base no template selecionado
+	// Generate appropriate files based on the selected template
 	switch cfg.Template {
 	case "webapi":
 		err = templates.GenerateWebApi(projectDir, cfg)
@@ -41,11 +41,11 @@ func (g *DefaultGenerator) Generate(cfg config.ProjectConfig) error {
 	case "clean-arch-keycloak-pg-ef":
 		err = templates.GenerateCleanArchKeycloakPgEf(projectDir, cfg)
 	default:
-		return fmt.Errorf("template desconhecido: %s", cfg.Template)
+		return fmt.Errorf("unknown template: %s", cfg.Template)
 	}
 
 	if err != nil {
-		return fmt.Errorf("erro ao gerar template: %w", err)
+		return fmt.Errorf("failed to generate template: %w", err)
 	}
 
 	return nil
@@ -53,7 +53,7 @@ func (g *DefaultGenerator) Generate(cfg config.ProjectConfig) error {
 
 func GenerateBuildTree(cfg config.ProjectConfig) error {
 	templateDir := filepath.Join(templates.GetTemplatesRootDir(), cfg.Template)
-	templates.PrintBuildTree(templateDir, "")
+	templates.PrintBuildTree(templateDir, "", cfg.Name)
 	return nil
 }
 

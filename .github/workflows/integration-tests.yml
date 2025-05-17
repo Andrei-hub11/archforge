@@ -1,0 +1,43 @@
+name: Integration Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      template:
+        description: "Template to test (leave empty for all)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.24.3"
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: "9.0.300"
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run integration tests - Template Generation
+        if: ${{ inputs.template == '' || inputs.template == 'generation' }}
+        run: go test -v ./internal/generator -run TestTemplateGeneration_
+        env:
+          INTEGRATION_TESTS: "1"
+          CI: "true"
+
+      - name: Run integration tests - Folder Structure
+        if: ${{ inputs.template == '' || inputs.template == 'structure' }}
+        run: go test -v ./internal/generator -run TestFolderStructure_
+        env:
+          INTEGRATION_TESTS: "1"
+          CI: "true"

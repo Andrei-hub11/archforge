@@ -1,0 +1,57 @@
+using Microsoft.EntityFrameworkCore;
+using __ProjectName__.Domain.Entities;
+using __ProjectName__.Domain.Repositories;
+using __ProjectName__.Infrastructure.Persistence;
+
+namespace __ProjectName__.Infrastructure.Repositories;
+
+public class ProductRepository : IProductRepository
+{
+    private readonly ApplicationDbContext _dbContext;
+
+    public ProductRepository(ApplicationDbContext dbContext)
+    {
+        _dbContext = dbContext;
+    }
+
+    public async Task<Product?> GetByIdAsync(Guid id)
+    {
+        return await _dbContext.Products.FindAsync(id);
+    }
+
+    public async Task<IEnumerable<Product>> GetAllAsync()
+    {
+        return await _dbContext.Products.ToListAsync();
+    }
+
+    public async Task<IEnumerable<Product>> GetActiveAsync()
+    {
+        return await _dbContext.Products
+            .Where(p => p.IsActive)
+            .ToListAsync();
+    }
+
+    public async Task<bool> CreateAsync(Product product)
+    {
+        _dbContext.Products.Add(product);
+        var result = await _dbContext.SaveChangesAsync();
+        return result > 0;
+    }
+
+    public async Task<bool> UpdateAsync(Product product)
+    {
+        _dbContext.Products.Update(product);
+        var result = await _dbContext.SaveChangesAsync();
+        return result > 0;
+    }
+
+    public async Task<bool> DeleteAsync(Guid id)
+    {
+        var product = await _dbContext.Products.FindAsync(id);
+        if (product == null) return false;
+
+        _dbContext.Products.Remove(product);
+        var result = await _dbContext.SaveChangesAsync();
+        return result > 0;
+    }
+}

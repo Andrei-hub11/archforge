@@ -1,0 +1,16 @@
+using Microsoft.Extensions.DependencyInjection;
+using __ProjectName__.Application.Services;
+using __ProjectName__.Application.Contracts.Interfaces;
+
+namespace __ProjectName__.Application;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddApplication(this IServiceCollection services)
+    {
+        // Register services
+        services.AddScoped<IProductService, ProductService>();
+
+        return services;
+    }
+}

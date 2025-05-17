@@ -1,0 +1,22 @@
+using Microsoft.EntityFrameworkCore;
+using __ProjectName__.Domain.Entities;
+using __ProjectName__.Infrastructure.Persistence.Configurations;
+
+namespace __ProjectName__.Infrastructure.Persistence;
+
+public class ApplicationDbContext : DbContext
+{
+    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
+        : base(options)
+    {
+    }
+
+    public DbSet<Product> Products { get; set; } = null!;
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.ApplyConfiguration(new ProductConfiguration());
+    }
+}

@@ -64,7 +64,9 @@ func NewTestingHelper(t *testing.T) *TestingHelper {
 // Cleanup removes temporary test directories
 func (h *TestingHelper) Cleanup() {
 	if h.TempDir != "" {
-		os.RemoveAll(h.TempDir)
+		if err := os.RemoveAll(h.TempDir); err != nil {
+			h.T.Logf("Warning: Failed to clean up temporary directory %s: %v", h.TempDir, err)
+		}
 	}
 }
 
@@ -102,7 +104,9 @@ func (h *TestingHelper) SetupTemplates() {
 	h.T.Logf("Templates directory set to: %s", h.TemplatesDir)
 
 	// Set the templates directory for the template package
-	os.Setenv("ARCHFORGE_TEMPLATES_DIR", h.TemplatesDir)
+	if err := os.Setenv("ARCHFORGE_TEMPLATES_DIR", h.TemplatesDir); err != nil {
+		h.T.Fatalf("Failed to set environment variable ARCHFORGE_TEMPLATES_DIR: %v", err)
+	}
 
 	// Verify the environment variable was set
 	if dir := os.Getenv("ARCHFORGE_TEMPLATES_DIR"); dir != h.TemplatesDir {

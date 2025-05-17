@@ -30,7 +30,7 @@ func CreateCmd() *cobra.Command {
 			}
 
 			if len(missing) > 0 {
-				fmt.Printf("Erro: faltando flag(s) obrigatória(s): %s\n\n", strings.Join(missing, ", "))
+				fmt.Printf("Error: missing required flag(s): %s\n\n", strings.Join(missing, ", "))
 				if err := cmd.Usage(); err != nil {
 					fmt.Println(err)
 				}

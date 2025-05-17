@@ -1,8 +1,0 @@
-namespace __ProjectName__.Contracts.Response;
-
-public sealed record AuthKeycloakResponseDTO(
-    UserResponseDTO User,
-    string AccessToken,
-    string RefreshToken,
-    IReadOnlySet<string> Roles
-);

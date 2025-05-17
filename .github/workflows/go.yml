@@ -15,13 +15,16 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.21"
+          go-version: "1.24.3"
 
       - name: Install dependencies
         run: go mod download
 
-      - name: Run tests
-        run: go test -v ./...
+      - name: Run tests (skipping integration tests)
+        run: go test -v ./... -skip TestTemplateGeneration_ -skip TestProjectExecution_ -skip TestFolderStructure_
+        env:
+          INTEGRATION_TESTS: "0"
+          CI: "true"
 
       - name: Check code formatting
         run: |

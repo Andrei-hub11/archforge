@@ -23,12 +23,10 @@ type SelectFunc func(message string, options []string, defaultValue string) stri
 var defaultInputFunc = func(message string, defaultValue string) string {
 	fmt.Printf("%s (default: %s): ", message, defaultValue)
 
-	// Não usamos completador para entrada simples
 	completer := func(d prompt.Document) []prompt.Suggest {
 		return []prompt.Suggest{}
 	}
 
-	// Configurar o prompt com opções específicas para melhor compatibilidade
 	options := []prompt.Option{
 		prompt.OptionPrefixTextColor(prompt.Blue),
 		prompt.OptionInputTextColor(prompt.DefaultColor),
@@ -57,7 +55,6 @@ var defaultSelectFunc = func(message string, options []string, defaultValue stri
 		return prompt.FilterHasPrefix(suggestions, d.GetWordBeforeCursor(), true)
 	}
 
-	// Configurar o prompt com opções específicas para melhor compatibilidade
 	promptOptions := []prompt.Option{
 		prompt.OptionPrefixTextColor(prompt.Blue),
 		prompt.OptionInputTextColor(prompt.DefaultColor),
@@ -70,9 +67,9 @@ var defaultSelectFunc = func(message string, options []string, defaultValue stri
 	// Validate if the result is one of the options
 	valid := false
 	for _, opt := range options {
-		if strings.EqualFold(result, opt) {
+		if strings.HasPrefix(opt, result) || strings.HasPrefix(result, strings.Split(opt, " - ")[0]) {
 			valid = true
-			result = opt // Use exact case from options
+			result = strings.Split(opt, " - ")[0]
 			break
 		}
 	}
@@ -147,31 +144,30 @@ func InteractiveCmd() *cobra.Command {
 }
 
 func getInteractiveConfig() config.ProjectConfig {
-	// Define valores padrão
 	defaultName := "MyProject"
 	defaultTemplate := "console"
 	defaultOutput := "."
 
-	// Inicializa config com valores padrão
 	cfg := config.ProjectConfig{
 		Name:      defaultName,
 		Template:  defaultTemplate,
 		OutputDir: defaultOutput,
 	}
 
-	// Get project name
 	cfg.Name = currentInputFunc("Enter the name of the project", defaultName)
 
-	// Get output directory
 	output := currentInputFunc("Enter the output directory", defaultOutput)
 	if output != "" {
 		cfg.OutputDir = output
 	}
 
-	// Get template
-	template := currentSelectFunc("Select the template to use ",
-		[]string{"(1) - clean-arch-keycloak-pg-dapper", "(2) - clean-arch-keycloak-pg-ef", "(3) - webapi"}, "1")
-	cfg.Template = datas.TemplatesSelect[template]
+	templateID := currentSelectFunc(
+		"Select the template to use",
+		datas.GetTemplateOptions(),
+		"1",
+	)
+
+	cfg.Template = datas.TemplatesSelect[templateID]
 
 	// Get preview option using the select function
 	preview := currentSelectFunc("Do you want to preview the project? (1/Yes, 2/No)", []string{"1", "2"}, "2")
@@ -179,7 +175,6 @@ func getInteractiveConfig() config.ProjectConfig {
 
 	return cfg
 }
-
 func getResponseToPreview() bool {
 	response := currentSelectFunc("Do you accept the preview? (1/Yes, 2/No)", []string{"1", "2"}, "2")
 	return response == "1"
